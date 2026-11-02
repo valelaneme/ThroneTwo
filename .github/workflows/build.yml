@@ -221,7 +221,10 @@ jobs:
           tar -xzf download-artifact/artifacts.tgz
       - name: Pack
         shell: bash
-        run: bash ./script/pack_release.sh zip-windows64 "${{ github.event.inputs.tag }}"
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          cd deployment/windows-amd64
+          7z a -tzip "../Throne-${TAG}-windows64.zip" *
       - name: Uploading Artifact
         uses: actions/upload-artifact@v4
         with:
