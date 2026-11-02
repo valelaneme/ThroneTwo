@@ -212,11 +212,16 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: Throne-${{ github.sha }}-windows*
+          name: Throne-${{ github.sha }}-windows-amd64
           path: download-artifact
+      - name: Extract Artifacts
+        shell: bash
+        run: |
+          mkdir -p deployment
+          tar -xzf download-artifact/artifacts.tgz
       - name: Pack
         shell: bash
-        run: bash ./script/pack_release.sh windows "${{ github.event.inputs.tag }}"
+        run: bash ./script/pack_release.sh zip-windows64 "${{ github.event.inputs.tag }}"
       - name: Uploading Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -322,8 +327,7 @@ jobs:
       - name: Download Windows Artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: Pack-${{ github.sha }}-windows*
-          merge-multiple: true
+          name: Pack-${{ github.sha }}-windows
           path: deployment
       - name: Download Android Artifact
         uses: actions/download-artifact@v4
