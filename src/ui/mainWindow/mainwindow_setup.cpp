@@ -94,7 +94,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     auto *host = Engine::host();
     connect(host->stats(), &Engine::StatsService::trafficLinesChanged, this, &MainWindow::set_traffic_lines);
     connect(host->stats(), &Engine::StatsService::trafficSampled, this, [this](const Stats::TrafficSample &s) {
-        // An idle tick carries no status, and refresh_status("") would redo the whole status bar every second.
         if (s.coreRunning) refresh_status(s.status);
         add_traffic_point(s.monoMs, s.coreRunning, s.values, s.proxyDown, s.proxyUp, s.directDown, s.directUp);
         if (!s.creditedIds.isEmpty()) refresh_proxy_list(s.creditedIds);
@@ -146,7 +145,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         });
     };
 
-    // Menu mirrors of settings that the API can change as well.
     const auto syncSettingsMirrors = [this] {
         const auto &settings = Configs::dataManager->settingsRepo;
         const QSignalBlocker rememberBlocker(ui->actionRemember_last_proxy);
@@ -155,11 +153,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         ui->actionAllow_LAN->setChecked(QStringList{"::", "0.0.0.0"}.contains(settings->inbound_address));
     };
 
-    // AutoConnection, like the old runOnUiThread hop: direct for emits on the main thread, queued from workers.
     auto *engineEvents = Engine::EngineEvents::instance();
     connect(engineEvents, &Engine::EngineEvents::subscriptionNewGroup, this, [this](int gid) {
         refresh_groups();
-        // Focused on creation, not when the download ends: by then the user may have moved to another tab.
         if (Configs::dataManager->groupsRepo->GetGroupsTabOrder().contains(gid)) ui->tabWidget->setCurrentIndex(groupId2TabIndex(gid));
     });
     connect(engineEvents, &Engine::EngineEvents::subscriptionFinished, this, [this](int, bool) { refresh_proxy_list({}, true); });
@@ -227,7 +223,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     });
     Configs_network::NetworkRequestHelper::SetDownloadProgressSink([this](const DownloadProgressReport &report, bool show) {
         setDownloadReport(report, show);
-        // Progress updates are throttled; the final one must land.
         UpdateDataView(!show);
     });
 
@@ -260,12 +255,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         Configs::dataManager->groupsRepo->SetGroupsTabOrder(tabOrder);
         on_tabWidget_currentChanged(ui->tabWidget->tabBar()->currentIndex());
     });
-    // Carries profile names and the exit lookup service's answer; as AutoText a tag on the first line renders it all as HTML.
+
     ui->label_running->setTextFormat(Qt::PlainText);
     ui->label_running->installEventFilter(this);
     ui->label_inbound->installEventFilter(this);
     ui->splitter->installEventFilter(this);
-    // Never from a mouse-press filter: off Windows Qt synthesizes the context-menu event after the press (#1642).
+
     ui->tabWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     ui->tabWidget->tabBar()->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->tabWidget->tabBar(), &QWidget::customContextMenuRequested, this,
@@ -275,7 +270,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     btnFilter->setToolTip(QString("%1\n%2").arg(tr("Enable Filter"), QKeySequence(QKeySequence::Find).toString(QKeySequence::NativeText)));
     btnFilter->setShortcut(QKeySequence::Find);
     btnFilter->setCheckable(true);
-    // Sits inside the tab strip: an ignored right-click here would propagate to the group menu.
     btnFilter->setContextMenuPolicy(Qt::PreventContextMenu);
     connect(btnFilter, &QToolButton::toggled, static_cast<ProfilesTableFilterHeader*>(ui->profilesTableView->horizontalHeader()), &ProfilesTableFilterHeader::setFiltersVisible);
     connect(static_cast<ProfilesTableFilterHeader*>(ui->profilesTableView->horizontalHeader()), &ProfilesTableFilterHeader::closeRequested,
@@ -376,7 +370,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->runtime_tab->layout()->addWidget(runtimeScroll);
 
     profilesTableModel = new ProfilesTableModel(this);
-    // A profile fed by an IP list shows the list's first entry, which any list change can move.
     const auto refreshEffectiveAddresses = [this] {
         profilesTableModel->invalidateAddresses();
     };
@@ -391,11 +384,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             [this] { refresh_startstop_button(); });
     ui->profilesTableView->rowsSwapped = [this](int row1, int row2)
     {
-        // A drop position in a filtered list says nothing about the group's real order.
         if (profilesFilterModel->hasActiveFilter()) return;
         if (row1 == row2) return;
         auto group = Configs::dataManager->groupsRepo->CurrentGroup();
-        // A hand-placed row is a manual order, which a kept sort would undo.
         group->SetSort({});
         refresh_sort_indicator();
         group->EmplaceProfile(row1, row2);
@@ -425,7 +416,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         int columnIndex = header->logicalIndexAt(pos);
         auto group = Configs::dataManager->groupsRepo->CurrentGroup();
         if (group == nullptr) return;
-        // The column-widths action carries its shortcut id as data, so it must never be read as a sort key.
         auto execHeaderMenu = [&](QMenu& menu) -> QAction* {
             if (!menu.isEmpty()) menu.addSeparator();
             QAction* stopSorting = group->KeepsSorted() ? menu.addAction(tr("Stop Sorting")) : nullptr;
@@ -437,7 +427,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             }
             return chosen == ui->actionRefresh_Column_Widths ? nullptr : chosen;
         };
-        // Picking a key keeps the direction of a sort already on this column.
         const auto sortColumn = [this, group](int column, bool descendingByDefault) {
             GroupSortAction action{ProfilesTableModel::sortOfColumn(column), descendingByDefault};
             if (ProfilesTableModel::columnOfSort(group->sort.method) == column) action.descending = group->sort.descending;
@@ -558,6 +547,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->profilesTableView->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     ui->profilesTableView->setTabKeyNavigation(false);
     ui->profilesTableView->horizontalHeader()->setResizeContentsPrecision(0);
+    // 自动让最后一列（地址）拉伸填满整个表格的剩余宽度
+    ui->profilesTableView->horizontalHeader()->setStretchLastSection(true);
 
     connect(ui->profilesTableView->verticalScrollBar(), &QScrollBar::valueChanged, ui->profilesTableView, [=, this] {
         if (!ui->profilesTableView->isVisible()) return;
@@ -637,7 +628,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     connect(actOtpCodes, &QAction::triggered, this, [this]() { openTrayOtpCodes(); });
     UiMode::MarkAdvanced(actOtpCodes);
     trayMenu->addAction(actOtpCodes);
-    // MacOS cannot reuse menus across different parents properly
+
     if (getOS() == Darwin) {
         auto* traySpmodeMenu = new QMenu(ui->menu_spmode->title(), trayMenu);
         traySpmodeMenu->addAction(ui->menu_spmode_system_proxy);
@@ -846,7 +837,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         actionWarp->setChecked(Configs::dataManager->settingsRepo->enable_warp);
         ui->actionUpdate_Rule_Sets->setEnabled(runningSnapshot() != nullptr && !Engine::AssetUpdates::RuleSetUpdateRunning());
 
-        // Kept across shows unless the profiles' ids or names changed: the command palette holds on to these actions.
         QList<QAction*> routeActions;
         for (auto* action : ui->menuRouting_Menu->actions()) {
             if (action->property("routeProfileId").isValid()) routeActions.append(action);
@@ -905,7 +895,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     });
     connect(ui->menu_stop_testing, &QAction::triggered, this, [=,this]() { tests()->stop(); });
     auto set_selected_or_group = [=,this](int mode) {
-        // 0=group 1=select 2=unknown(menu is hide)
         ui->menu_server->setProperty("selected_or_group", mode);
     };
     connect(ui->menu_server, &QMenu::aboutToHide, this, [=,this] {
@@ -948,7 +937,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     });
     connect(ui->actionAdd_profile_from_File, &QAction::triggered, this, [=,this]()
     {
-        // QFileDialog defaults to the first filter; config files routinely carry no extension.
         const auto filters = QStringList{
             tr("All files (*)"),
             tr("Config files (*.json *.conf *.txt *.yaml *.yml *.ini *.ovpn *.xml)"),
@@ -1057,4 +1045,3 @@ void MainWindow::setupTrafficGraph() {
     trafficChart->addMenuAction(m_trafficStatsChartAction);
     refresh_traffic_graph_settings();
 }
-
