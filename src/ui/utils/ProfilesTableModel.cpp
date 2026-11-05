@@ -2,7 +2,6 @@
 #include "include/global/Configs.hpp"
 #include "include/database/entities/Profile.h"
 #include "include/configs/common/Outbound.h"
-#include "include/ui/setting/ThemeManager.hpp"
 #include <QApplication>
 #include <QMimeData>
 #include <QPalette>
@@ -99,14 +98,14 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
 
     const int startedId = Configs::dataManager->settingsRepo->started_id;
     const bool isRunning = (profile->id == startedId);
-    const ThemeTokens &tokens = themeManager()->tokens;
-    QColor linkColor = !isRunning                  ? QColor()
-                       : tokens.runningRow.isValid() ? tokens.onRunningRow
-                                                     : QApplication::palette().link().color();
+    QColor linkColor = isRunning ? QApplication::palette().link().color() : QColor();
 
+    // 顺序映射：0:名称, 1:类型, 2:测试结果, 3:流量, 4:地址
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
-        case ColType: {
+        case 0: // 名称
+            return profile->outbound ? profile->outbound->name : QString();
+        case 1: { // 类型
             if (!profile->outbound) return QString();
             auto type = profile->outbound->DisplayType();
             if (Configs::dataManager->settingsRepo->show_config_security) {
@@ -115,19 +114,21 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
             }
             return type;
         }
-        case ColAddress: {
+        case 2: // 测试结果
+            return profile->DisplayTestResult();
+        case 3: // 流量
+            return profile->DisplayTraffic();
+        case 4: { // 地址
             auto address = m_addressCache.constFind(profileId);
             if (address == m_addressCache.constEnd()) address = m_addressCache.insert(profileId, Configs::DisplayEffectiveAddress(profile));
             return address.value();
         }
-        case ColName: return profile->outbound ? profile->outbound->name : QString();
-        case ColTestResult: return profile->DisplayTestResult();
-        case ColTraffic: return profile->DisplayTraffic();
         default: return {};
         }
     }
     if (role == Qt::ToolTipRole) {
-        if (index.column() == ColType && Configs::dataManager->settingsRepo->show_config_security && profile->outbound) {
+        // 当前第 1 列为类型
+        if (index.column() == 1 && Configs::dataManager->settingsRepo->show_config_security && profile->outbound) {
             const auto security = profile->outbound->EffectiveSecurity();
             if (security.compromised) return tr("Certificate checks are turned off by the \"Skip TLS certificate authentication\" setting.");
             if (security.isDangerous()) return tr("This config's traffic is not properly protected.");
@@ -135,15 +136,13 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
         return {};
     }
     if (role == Qt::ForegroundRole) {
-        if (index.column() == ColTestResult) {
+        // 当前第 2 列为测试结果
+        if (index.column() == 2) {
             QColor latencyColor = profile->DisplayLatencyColor();
             if (latencyColor.isValid()) return latencyColor;
         }
         if (isRunning && linkColor.isValid()) return linkColor;
         return {};
-    }
-    if (role == Qt::BackgroundRole && isRunning && tokens.runningRow.isValid()) {
-        return tokens.runningRow;
     }
     return {};
 }
@@ -151,12 +150,13 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
 QVariant ProfilesTableModel::headerData(int section, Qt::Orientation orientation, int role) const {
     if (role != Qt::DisplayRole) return {};
     if (orientation == Qt::Horizontal) {
+        // 顺序映射：0:名称, 1:类型, 2:测试结果, 3:流量, 4:地址
         switch (section) {
-        case ColType: return tr("Type");
-        case ColAddress: return tr("Address");
-        case ColName: return tr("Name");
-        case ColTestResult: return tr("Test Result");
-        case ColTraffic: return tr("Traffic");
+        case 0: return tr("Name");
+        case 1: return tr("Type");
+        case 2: return tr("Test Result");
+        case 3: return tr("Traffic");
+        case 4: return tr("Address");
         default: return {};
         }
     }
@@ -253,7 +253,8 @@ void ProfilesTableModel::invalidateAddresses() {
     m_filterKeys.clear();
     m_filterIndexBuilt = false;
     if (m_profileIds.isEmpty()) return;
-    emit dataChanged(index(0, ColAddress), index(static_cast<int>(m_profileIds.size()) - 1, ColAddress), {Qt::DisplayRole});
+    // 地址列对应第 4 列
+    emit dataChanged(index(0, 4), index(static_cast<int>(m_profileIds.size()) - 1, 4), {Qt::DisplayRole});
 }
 
 void ProfilesTableModel::emplaceProfiles(int row1, int row2) {
@@ -275,36 +276,32 @@ int ProfilesTableModel::indexOfProfile(int id) {
 
 int ProfilesTableModel::columnOfSort(GroupSortMethod::GroupSortMethod method) {
     switch (method) {
+    case GroupSortMethod::ByName: return 0;
     case GroupSortMethod::ByType:
-    case GroupSortMethod::BySecurity: return ColType;
-    case GroupSortMethod::ByAddress: return ColAddress;
-    case GroupSortMethod::ByName: return ColName;
+    case GroupSortMethod::BySecurity: return 1;
     case GroupSortMethod::ByTestResult:
-    case GroupSortMethod::ByLatency: return ColTestResult;
-    case GroupSortMethod::ByTraffic: return ColTraffic;
+    case GroupSortMethod::ByLatency: return 2;
+    case GroupSortMethod::ByTraffic: return 3;
+    case GroupSortMethod::ByAddress: return 4;
     default: return -1;
     }
 }
 
 GroupSortMethod::GroupSortMethod ProfilesTableModel::sortOfColumn(int column) {
     switch (column) {
-    case ColType: return GroupSortMethod::ByType;
-    case ColAddress: return GroupSortMethod::ByAddress;
-    case ColName: return GroupSortMethod::ByName;
-    case ColTestResult: return GroupSortMethod::ByTestResult;
-    case ColTraffic: return GroupSortMethod::ByTraffic;
+    case 0: return GroupSortMethod::ByName;
+    case 1: return GroupSortMethod::ByType;
+    case 2: return GroupSortMethod::ByTestResult;
+    case 3: return GroupSortMethod::ByTraffic;
+    case 4: return GroupSortMethod::ByAddress;
     default: return GroupSortMethod::Raw;
     }
 }
 
-bool ProfilesTableModel::isStartedRow(int sourceRow) const {
-    return sourceRow >= 0 && sourceRow < m_profileIds.size()
-        && m_profileIds[sourceRow] == Configs::dataManager->settingsRepo->started_id;
-}
-
 QString ProfilesTableModel::rowLabel(int sourceRow, int displayRow) const {
     if (sourceRow < 0 || sourceRow >= m_profileIds.size()) return {};
-    if (isStartedRow(sourceRow)) {
+    int id = m_profileIds[sourceRow];
+    if (Configs::dataManager->settingsRepo->started_id == id) {
         return QStringLiteral("✓");
     }
     return QString::number(displayRow + 1) + QStringLiteral("  ");
